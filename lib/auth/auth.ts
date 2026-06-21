@@ -24,13 +24,24 @@ function createAuth() {
 	// public origin, so requests get rejected as "invalid origin". Pin the
 	// baseURL to the deployment URL and trust it (plus any extra origins listed
 	// in BETTER_AUTH_TRUSTED_ORIGINS, comma-separated) explicitly.
-	const baseURL = process.env.BETTER_AUTH_URL;
+	//
+	// Normalize to the bare origin (scheme + host) so a stray trailing slash or
+	// path in the env var can't cause an origin mismatch.
+	const toOrigin = (value: string): string => {
+		try {
+			return new URL(value).origin;
+		} catch {
+			return value.replace(/\/+$/, "");
+		}
+	};
+	const baseURL = process.env.BETTER_AUTH_URL?.replace(/\/+$/, "");
 	const trustedOrigins = [
-		...(baseURL ? [baseURL] : []),
+		...(baseURL ? [toOrigin(baseURL)] : []),
 		...(process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
 			.split(",")
 			.map((origin) => origin.trim())
-			.filter(Boolean),
+			.filter(Boolean)
+			.map(toOrigin),
 	];
 
 	return betterAuth({
