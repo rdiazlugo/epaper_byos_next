@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 ARG NODE_VERSION=22.22.3
 
 # Base stage - minimal Node.js only
@@ -19,8 +20,10 @@ FROM base AS deps
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-RUN pnpm install --frozen-lockfile --prod=false \
-    && rm -rf ~/.npm ~/.pnpm-store /root/.cache
+# Cache the pnpm store across builds; deps is an intermediate stage so the
+# store never ships in the final image — no manual cleanup needed.
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --prod=false --store-dir=/pnpm/store
 
 # Build the application
 FROM base AS builder
@@ -28,7 +31,9 @@ FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN pnpm run build \
+# Persist Next.js incremental compile cache across builds.
+RUN --mount=type=cache,id=next,target=/app/.next/cache \
+    pnpm run build \
     && rm -rf node_modules/.cache
 
 # Production image - chromedp/headless-shell for minimal Chrome footprint
@@ -58,8 +63,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# standalone + static were copied with --chown already; only the runtime
+# cache dir we create here needs ownership set.
 RUN mkdir -p .next/cache \
-    && chown -R nextjs:nodejs .next
+    && chown nextjs:nodejs .next .next/cache
 
 USER nextjs
 
