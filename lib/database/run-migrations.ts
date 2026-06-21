@@ -42,33 +42,24 @@ export async function runMigrations(): Promise<{ applied: string[] }> {
 	const applied: string[] = [];
 
 	try {
-		// Ensure the ledger table exists before we can read or write it.
-		const ledger = SQL_STATEMENTS[SCHEMA_MIGRATIONS_MIGRATION];
-		const ledgerChecksum = checksumSql(ledger.sql);
-		await sql.unsafe(ledger.sql);
+		// Create the ledger table as an unrecorded prerequisite so we can read
+		// and write it — the 0012 migration itself is still applied (and
+		// recorded) in its proper numeric position by the loop below. This is
+		// idempotent: 0012 is a `CREATE TABLE IF NOT EXISTS`.
+		await sql.unsafe(SQL_STATEMENTS[SCHEMA_MIGRATIONS_MIGRATION].sql);
 
 		const existing = await sql<{ name: string; checksum: string }[]>`
 			SELECT name, checksum FROM schema_migrations
 		`;
 		const appliedMap = new Map(existing.map((r) => [r.name, r.checksum]));
 
-		if (!appliedMap.has(SCHEMA_MIGRATIONS_MIGRATION)) {
-			await sql`
-				INSERT INTO schema_migrations (name, checksum)
-				VALUES (${SCHEMA_MIGRATIONS_MIGRATION}, ${ledgerChecksum})
-				ON CONFLICT (name) DO NOTHING
-			`;
-			appliedMap.set(SCHEMA_MIGRATIONS_MIGRATION, ledgerChecksum);
-			applied.push(SCHEMA_MIGRATIONS_MIGRATION);
-		}
+		// Apply migrations strictly in ascending name order (0000, 0001, …),
+		// independent of object key order, so 0012 never lands before 0001.
+		const ordered = Object.entries(SQL_STATEMENTS)
+			.filter(([key]) => key !== "validate_schema")
+			.sort(([a], [b]) => a.localeCompare(b));
 
-		// SQL_STATEMENTS is generated from migration files sorted by name, so
-		// iteration order is the migration order.
-		for (const [key, statement] of Object.entries(SQL_STATEMENTS)) {
-			if (key === "validate_schema" || key === SCHEMA_MIGRATIONS_MIGRATION) {
-				continue;
-			}
-
+		for (const [key, statement] of ordered) {
 			const checksum = checksumSql(statement.sql);
 			const appliedChecksum = appliedMap.get(key);
 
