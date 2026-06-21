@@ -1,5 +1,6 @@
 import { AlertCircle } from "lucide-react";
 import Link from "next/link";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { fetchSystemLogs } from "@/app/actions/system";
 import { PageTemplate } from "@/components/common/page-template";
@@ -17,6 +18,9 @@ const INITIAL_PAGE_SIZE = 15;
 
 // SystemLogs data component that fetches its own data
 const SystemLogsData = async () => {
+	// Probe the DB at request time; without connection() Next would prerender
+	// this at build (no DATABASE_URL) and bake a stale connection-error state.
+	await connection();
 	const dbStatus = await getDbStatus();
 
 	if (!dbStatus.ready) {
