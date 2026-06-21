@@ -16,8 +16,23 @@ function createAuth() {
 
 	const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 
+	// Behind a reverse proxy (e.g. Coolify) better-auth can't reliably infer the
+	// public origin, so requests get rejected as "invalid origin". Pin the
+	// baseURL to the deployment URL and trust it (plus any extra origins listed
+	// in BETTER_AUTH_TRUSTED_ORIGINS, comma-separated) explicitly.
+	const baseURL = process.env.BETTER_AUTH_URL;
+	const trustedOrigins = [
+		...(baseURL ? [baseURL] : []),
+		...(process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
+			.split(",")
+			.map((origin) => origin.trim())
+			.filter(Boolean),
+	];
+
 	return betterAuth({
 		database: pool,
+		...(baseURL ? { baseURL } : {}),
+		...(trustedOrigins.length > 0 ? { trustedOrigins } : {}),
 		emailAndPassword: {
 			enabled: true,
 			sendResetPassword: async ({
