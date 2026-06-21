@@ -17,6 +17,11 @@ export const db = new Kysely<DB>({
 				: process.env.NODE_ENV === "production"
 					? { rejectUnauthorized: false }
 					: false,
+			// Fail fast when the DB is unreachable so requests surface a clear
+			// error instead of hanging until the reverse proxy returns a 504.
+			connectionTimeoutMillis: 5000,
+			query_timeout: 10000,
+			statement_timeout: 10000,
 		}),
 	}),
 });

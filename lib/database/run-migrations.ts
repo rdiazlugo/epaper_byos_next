@@ -37,6 +37,10 @@ export async function runMigrations(): Promise<{ applied: string[] }> {
 	const sql = postgres(connectionString, {
 		ssl: connectionString.includes("sslmode=disable") ? false : "require",
 		onnotice: () => {},
+		// Bound the connection attempt so an unreachable DB can't stall server
+		// boot indefinitely (instrumentation awaits this before serving).
+		connect_timeout: 10,
+		max: 1,
 	});
 
 	const applied: string[] = [];

@@ -12,6 +12,10 @@ function createAuth() {
 
 	const pool = new Pool({
 		connectionString: process.env.DATABASE_URL,
+		// Fail fast on an unreachable DB rather than hanging the auth request.
+		connectionTimeoutMillis: 5000,
+		query_timeout: 10000,
+		statement_timeout: 10000,
 	});
 
 	const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
