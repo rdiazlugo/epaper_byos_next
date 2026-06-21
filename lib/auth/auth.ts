@@ -44,6 +44,17 @@ function createAuth() {
 			.map(toOrigin),
 	];
 
+	// Startup diagnostics: confirm what the running process actually resolved,
+	// so an "Invalid origin" rejection can be traced to a missing/mismatched env.
+	console.log("[auth] origin config:", {
+		BETTER_AUTH_URL_set: Boolean(process.env.BETTER_AUTH_URL),
+		BETTER_AUTH_URL_raw: process.env.BETTER_AUTH_URL ?? null,
+		BETTER_AUTH_TRUSTED_ORIGINS_raw:
+			process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? null,
+		baseURL: baseURL ?? null,
+		trustedOrigins,
+	});
+
 	return betterAuth({
 		database: pool,
 		...(baseURL ? { baseURL } : {}),
