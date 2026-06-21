@@ -6,7 +6,6 @@ on:
 
 env:
   REGISTRY_GITHUB: ghcr.io
-  REGISTRY_DOCKERHUB: docker.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
