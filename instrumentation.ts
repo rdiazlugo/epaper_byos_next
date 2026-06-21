@@ -11,6 +11,23 @@
 export async function register() {
 	if (process.env.NEXT_RUNTIME !== "nodejs") return;
 	if (process.env.NEXT_PHASE === "phase-production-build") return;
+
+	// Apply any pending migrations once the DB is reachable, so a fresh
+	// connection self-heals into a ready schema without the manual setup UI.
+	if (process.env.DATABASE_URL && process.env.SKIP_DB_MIGRATIONS !== "true") {
+		try {
+			const { runMigrations } = await import("./lib/database/run-migrations");
+			const { applied } = await runMigrations();
+			if (applied.length > 0) {
+				console.log(
+					`[instrumentation] Applied ${applied.length} migration(s): ${applied.join(", ")}`,
+				);
+			}
+		} catch (error) {
+			console.error("[instrumentation] Migration run failed at boot:", error);
+		}
+	}
+
 	if (process.env.SKIP_RECIPE_SYNC === "true") return;
 
 	try {
