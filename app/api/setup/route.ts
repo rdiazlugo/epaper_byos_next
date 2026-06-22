@@ -269,11 +269,23 @@ export async function GET(request: Request) {
 						friendly_id: device.friendly_id,
 						mac_address: macAddress,
 						hasApiKey: Boolean(apiKey),
-						id_header: request.headers.get("ID"),
-						headers: safeHeaders,
 					},
 				},
 			);
+
+			logInfo("Setup refusal: ID header received", {
+				source: "api/setup",
+				metadata: {
+					id_header: request.headers.get("ID"),
+				},
+			});
+
+			logInfo("Setup refusal: request headers (api key omitted)", {
+				source: "api/setup",
+				metadata: {
+					headers: safeHeaders,
+				},
+			});
 			return NextResponse.json(
 				{
 					status: 403,
