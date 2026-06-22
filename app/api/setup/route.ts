@@ -273,19 +273,17 @@ export async function GET(request: Request) {
 				},
 			);
 
-			logInfo("Setup refusal: ID header received", {
-				source: "api/setup",
-				metadata: {
-					id_header: request.headers.get("ID"),
-				},
-			});
+			logInfo(
+				`Setup refusal: ID header received: ${request.headers.get("ID")}`,
+				{ source: "api/setup" },
+			);
 
-			logInfo("Setup refusal: request headers (api key omitted)", {
-				source: "api/setup",
-				metadata: {
-					headers: safeHeaders,
-				},
-			});
+			logInfo(
+				`Setup refusal: request headers (api key omitted): ${JSON.stringify(
+					safeHeaders,
+				)}`,
+				{ source: "api/setup" },
+			);
 			return NextResponse.json(
 				{
 					status: 403,
