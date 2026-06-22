@@ -253,6 +253,14 @@ export async function GET(request: Request) {
 			(Boolean(currentUserId) && device.user_id === currentUserId);
 
 		if (!canManageExistingDevice) {
+			const safeHeaders: Record<string, string> = {};
+			request.headers.forEach((value, key) => {
+				if (key.toLowerCase() === "access-token") {
+					return;
+				}
+				safeHeaders[key] = value;
+			});
+
 			logError(
 				"Refusing setup for device without owner or valid access token",
 				{
@@ -261,6 +269,8 @@ export async function GET(request: Request) {
 						friendly_id: device.friendly_id,
 						mac_address: macAddress,
 						hasApiKey: Boolean(apiKey),
+						id_header: request.headers.get("ID"),
+						headers: safeHeaders,
 					},
 				},
 			);
