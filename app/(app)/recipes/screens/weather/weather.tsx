@@ -1,27 +1,21 @@
+import type { CSSProperties } from "react";
 import { z } from "zod";
 import {
 	DEFAULT_IMAGE_HEIGHT,
 	DEFAULT_IMAGE_WIDTH,
 } from "@/lib/recipes/constants";
-import { isHalfScreenLayout } from "@/lib/recipes/layout";
 import type { RecipeDefinition } from "@/lib/recipes/types";
 import { PreSatori } from "@/utils/pre-satori";
-import getWeatherDataInternal from "./getData";
+import getWeatherDataInternal, {
+	type ForecastDay,
+	type WeatherData,
+	type WeatherIcon,
+} from "./getData";
 import {
-	CloudIcon,
-	FogIcon,
-	humidityIcon,
-	pressureIcon,
-	RainIcon,
-	SnowIcon,
-	SunIcon,
-	sunriseIcon,
-	sunsetIcon,
-	ThunderIcon,
-	tempDown,
-	tempIcon,
-	tempUp,
-	windIcon,
+	BatteryIcon,
+	forecastAccessory,
+	forecastIcon,
+	HeroIcon,
 } from "./icons";
 
 export const paramsSchema = z.object({
@@ -44,138 +38,320 @@ export const paramsSchema = z.object({
 			"Optional exact longitude; when set with latitude, skips geocoding",
 		)
 		.meta({ title: "Longitude" }),
+	deviceName: z
+		.string()
+		.default("")
+		.describe("Optional label shown top-right (e.g. the room the device is in)")
+		.meta({ title: "Device label", placeholder: "Kitchen" }),
+	battery: z
+		.number()
+		.min(0)
+		.max(100)
+		.default(100)
+		.describe("Battery percentage shown in the status bar")
+		.meta({ title: "Battery %" }),
+});
+
+const forecastSchema = z.object({
+	day: z.string(),
+	hi: z.number(),
+	lo: z.number(),
+	icon: z.enum(["clear", "cloud", "rain", "snow", "heatwave"]),
 });
 
 export const dataSchema = z.object({
-	temperature: z.string().default("Loading..."),
-	feelsLike: z.string().default("Loading..."),
-	humidity: z.string().default("Loading..."),
-	windSpeed: z.string().default("Loading..."),
-	description: z.string().default("Loading..."),
+	night: z.boolean().default(false),
+	dateLabel: z.string().default(""),
+	condition: z
+		.enum(["clear", "cloud", "rain", "snow", "heatwave"])
+		.default("clear"),
+	conditionLabel: z.string().default("Loading..."),
+	tempC: z.number().default(0),
+	feelsLike: z.number().default(0),
+	humidity: z.number().default(0),
+	precipNote: z.string().default(""),
+	sunrise: z.string().default("--:--"),
+	sunset: z.string().default("--:--"),
+	aqiValue: z.number().default(-1),
+	aqiLabel: z.string().default(""),
+	lowC: z.number().default(0),
+	highC: z.number().default(0),
 	location: z.string().default("Loading..."),
-	lastUpdated: z.string().default("Loading..."),
-	highTemp: z.string().default("Loading..."),
-	lowTemp: z.string().default("Loading..."),
-	pressure: z.string().default("Loading..."),
-	sunset: z.string().default("Loading..."),
-	sunrise: z.string().default("Loading..."),
+	forecast: z.array(forecastSchema).default([]),
 	latitude: z.number().default(0),
 	longitude: z.number().default(0),
 });
 
-interface WeatherProps {
-	temperature?: string;
-	feelsLike?: string;
-	humidity?: string;
-	windSpeed?: string;
-	description?: string;
-	location?: string;
-	lastUpdated?: string;
-	highTemp?: string;
-	lowTemp?: string;
-	pressure?: string;
-	sunset?: string;
-	sunrise?: string;
-	latitude?: number;
-	longitude?: number;
+type WeatherProps = WeatherData & {
+	deviceName?: string;
+	battery?: number;
 	width?: number;
 	height?: number;
-}
+};
+
+const STAR_SPECS: Array<[number, number, number, number]> = [
+	// [topFrac, leftFrac, sizeBase, opacity]
+	[0.06, 0.15, 3, 0.8],
+	[0.12, 0.25, 2, 0.5],
+	[0.08, 0.375, 3, 0.6],
+	[0.15, 0.5, 2, 0.4],
+	[0.05, 0.65, 3, 0.7],
+	[0.14, 0.76, 2, 0.5],
+	[0.09, 0.875, 3, 0.6],
+];
 
 export default function Weather({
-	temperature = "Loading...",
-	feelsLike = "Loading...",
-	humidity = "Loading...",
-	windSpeed = "Loading...",
-	description = "Loading...",
-	location = "Loading...",
-	lastUpdated = "Loading...",
-	highTemp = "Loading...",
-	lowTemp = "Loading...",
-	pressure = "Loading...",
-	sunset = "Loading...",
-	sunrise = "Loading...",
+	night = false,
+	dateLabel = "",
+	condition = "clear",
+	conditionLabel = "Loading...",
+	tempC = 0,
+	feelsLike = 0,
+	humidity = 0,
+	precipNote = "",
+	sunrise = "--:--",
+	sunset = "--:--",
+	aqiValue = -1,
+	aqiLabel = "",
+	lowC = 0,
+	highC = 0,
+	forecast = [],
+	deviceName = "",
+	battery = 100,
 	width = DEFAULT_IMAGE_WIDTH,
 	height = DEFAULT_IMAGE_HEIGHT,
 }: WeatherProps) {
-	// Weather statistics
-	const weatherStats = [
-		{ label: "Feels Like", value: `${feelsLike}°C`, icon: tempIcon },
-		{ label: "Humidity", value: `${humidity}%`, icon: humidityIcon },
-		{ label: "Wind Speed", value: `${windSpeed} km/h`, icon: windIcon },
-		{ label: "Pressure", value: `${pressure} hPa`, icon: pressureIcon },
-		{ label: "Sunrise", value: `${sunrise}`, icon: sunriseIcon },
-		{ label: "Sunset", value: `${sunset}`, icon: sunsetIcon },
-	];
+	const scale = width / 800;
+	const r = (n: number) => Math.round(n * scale);
 
-	// Get weather icon based on description
-	const getWeatherIcon = (desc: string) => {
-		const lowerDesc = desc.toLowerCase();
-		if (lowerDesc.includes("rain") || lowerDesc.includes("drizzle"))
-			return RainIcon;
-		if (lowerDesc.includes("snow")) return SnowIcon;
-		if (lowerDesc.includes("cloud")) return CloudIcon;
-		if (lowerDesc.includes("clear") || lowerDesc.includes("sun"))
-			return SunIcon;
-		if (lowerDesc.includes("fog") || lowerDesc.includes("mist")) return FogIcon;
-		if (lowerDesc.includes("thunder")) return ThunderIcon;
-		return CloudIcon; // default
+	const bg = night ? "#0a0a0a" : "#ffffff";
+	const fg = night ? "#f2f2f2" : "#111111";
+	const muted = night ? "#9a9a9a" : "#5c5c5c";
+	const divider = night ? "#333333" : "#d6d6d6";
+
+	const hdrFs = r(13);
+	const bigFs = r(132);
+	const condFs = r(26);
+	const secFs = r(15);
+	const smallFs = r(13);
+	const lblFs = r(11);
+	const valFs = r(17);
+	const dm = r(18);
+	const boxSize = r(38);
+	const isHeat = condition === "heatwave";
+
+	const feelsHumidity = `Feels ${feelsLike}° · Humidity ${humidity}%`;
+	const aqiLine = aqiValue >= 0 ? `AQI ${aqiValue} · ${aqiLabel}` : "";
+	const sunLine = `${sunrise} ▲  ${sunset} ▼`;
+	const lowHighLine = `${lowC}° / ${highC}°`;
+
+	const mono: CSSProperties = { fontSize: secFs, color: muted };
+	const kicker: CSSProperties = {
+		fontSize: lblFs,
+		letterSpacing: Math.round(lblFs * 0.08),
+		color: muted,
+		textTransform: "uppercase",
 	};
-
-	const isHalfScreen = isHalfScreenLayout(width, height);
 
 	return (
 		<PreSatori width={width} height={height}>
-			<div className="flex flex-col w-full h-full bg-white text-black">
+			<div
+				style={{
+					position: "relative",
+					display: "flex",
+					flexDirection: "column",
+					width: "100%",
+					height: "100%",
+					padding: r(40),
+					boxSizing: "border-box",
+					background: bg,
+					color: fg,
+					overflow: "hidden",
+				}}
+			>
+				{night &&
+					STAR_SPECS.map(([t, l, s, o], i) => (
+						<div
+							key={i}
+							style={{
+								position: "absolute",
+								top: Math.round(t * height),
+								left: Math.round(l * width),
+								width: r(s),
+								height: r(s),
+								borderRadius: "50%",
+								background: fg,
+								opacity: o,
+							}}
+						/>
+					))}
+
+				{/* Status bar */}
 				<div
-					className={`flex p-4 sm:flex-row items-center justify-between ${isHalfScreen ? "flex-row" : "flex-col sm:flex-row"}`}
+					className="font-inter"
+					style={{
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "space-between",
+						fontSize: hdrFs,
+						letterSpacing: Math.round(hdrFs * 0.08),
+						textTransform: "uppercase",
+						color: muted,
+					}}
 				>
-					<h2
-						className={`font-inter ${isHalfScreen ? "text-8xl" : "text-9xl"}`}
+					<div style={{ display: "flex", alignItems: "center", gap: r(10) }}>
+						<span className="font-inter">{dateLabel}</span>
+						<BatteryIcon battery={battery} fg={fg} hdrFs={hdrFs} />
+						<span className="font-inter">{battery}%</span>
+					</div>
+					{deviceName ? <span className="font-inter">{deviceName}</span> : null}
+				</div>
+
+				{/* Hero */}
+				<div
+					style={{
+						display: "flex",
+						flex: 1,
+						alignItems: "center",
+						gap: r(36),
+						marginTop: r(10),
+					}}
+				>
+					<HeroIcon
+						condition={condition}
+						night={night}
+						fg={fg}
+						bg={bg}
+						scale={scale}
+					/>
+					<div
+						className="font-inter"
+						style={{
+							fontSize: bigFs,
+							fontWeight: 700,
+							lineHeight: 1,
+							letterSpacing: Math.round(bigFs * -0.02),
+						}}
 					>
-						{temperature}°C
-					</h2>
-					<div className="flex flex-col items-center justify-center">
-						{getWeatherIcon(description)}
-						{!isHalfScreen && (
-							<div className="text-4xl mt-4 font-blockkie">
-								<div className="flex flex-row items-center">
-									{tempUp} {highTemp}°C
-									{tempDown} {lowTemp}°C
-								</div>
+						{tempC}°
+					</div>
+					<div style={{ width: 2, height: r(88), background: divider }} />
+					<div
+						style={{
+							display: "flex",
+							flexDirection: "column",
+							gap: r(10),
+							alignItems: "flex-start",
+						}}
+					>
+						<div
+							className="font-inter"
+							style={{ fontSize: condFs, fontWeight: 600 }}
+						>
+							{conditionLabel}
+						</div>
+						<div className="font-inter" style={mono}>
+							{feelsHumidity}
+						</div>
+						{precipNote ? (
+							<div className="font-inter" style={mono}>
+								{precipNote}
 							</div>
-						)}
+						) : null}
+						{isHeat ? (
+							<div
+								className="font-inter"
+								style={{
+									fontSize: secFs,
+									fontWeight: 600,
+									borderWidth: 2,
+									borderStyle: "solid",
+									borderColor: fg,
+									borderRadius: 5,
+									padding: `${r(3)}px ${r(9)}px`,
+									letterSpacing: Math.round(secFs * 0.04),
+								}}
+							>
+								⚠ HEAT ADVISORY
+							</div>
+						) : null}
+						{aqiLine ? (
+							<div
+								className="font-inter"
+								style={{ fontSize: smallFs, color: muted }}
+							>
+								{aqiLine}
+							</div>
+						) : null}
 					</div>
 				</div>
-				<div className="p-4 flex flex-col flex-1">
-					<div
-						className={`w-full flex flex-col flex-1 mb-4 ${isHalfScreen ? "gap-2" : "gap-4"} grid grid-cols-2 sm:grid-cols-3`}
-					>
-						{weatherStats.map((stat, index) => (
+
+				{/* Divider */}
+				<div style={{ height: 1, background: divider, margin: `${dm}px 0` }} />
+
+				{/* Sun + Low/High */}
+				<div
+					className="font-inter"
+					style={{ display: "flex", justifyContent: "space-between" }}
+				>
+					<div style={{ display: "flex", flexDirection: "column" }}>
+						<div className="font-inter" style={kicker}>
+							Sunrise / Sunset
+						</div>
+						<div
+							className="font-inter"
+							style={{ fontSize: valFs, marginTop: 4 }}
+						>
+							{sunLine}
+						</div>
+					</div>
+					<div style={{ display: "flex", flexDirection: "column" }}>
+						<div className="font-inter" style={kicker}>
+							Today Low / High
+						</div>
+						<div
+							className="font-inter"
+							style={{ fontSize: valFs, marginTop: 4 }}
+						>
+							{lowHighLine}
+						</div>
+					</div>
+				</div>
+
+				<div style={{ height: 1, background: divider, margin: `${dm}px 0` }} />
+
+				{/* Forecast strip */}
+				<div style={{ display: "flex", justifyContent: "space-between" }}>
+					{forecast.map((d: ForecastDay, i: number) => (
+						<div
+							key={i}
+							style={{
+								display: "flex",
+								flexDirection: "column",
+								alignItems: "center",
+								gap: 6,
+							}}
+						>
 							<div
-								key={index}
-								className=" rounded-xl border border-black flex-1 flex flex-row items-center"
+								className="font-inter"
+								style={{
+									fontSize: lblFs,
+									letterSpacing: Math.round(lblFs * 0.06),
+									color: muted,
+								}}
 							>
-								<div className="p-2 max-h-16">{stat.icon}</div>
-								<div className="flex flex-col sm:ml-2">
-									<div
-										className={`leading-none m-0 ${isHalfScreen ? "text-2xl" : "text-3xl"}`}
-									>
-										{stat.label}
-									</div>
-									<div
-										className={`leading-none m-0 ${isHalfScreen ? "text-2xl" : "text-3xl"}`}
-									>
-										{stat.value}
-									</div>
-								</div>
+								{d.day}
 							</div>
-						))}
-					</div>
-					<div className="w-full flex flex-col sm:flex-row  sm:justify-between items-center text-2xl text-white p-2 rounded-xl bg-gray-500">
-						<div>{location}</div>
-						<div>{lastUpdated && <span>Last updated: {lastUpdated}</span>}</div>
-					</div>
+							{forecastIcon(d.icon as WeatherIcon, boxSize, fg)}
+							{forecastAccessory(d.icon as WeatherIcon, boxSize, fg)}
+							<div
+								className="font-inter"
+								style={{ fontSize: valFs, color: fg }}
+							>
+								{`${d.hi}°/${d.lo}°`}
+							</div>
+						</div>
+					))}
 				</div>
 			</div>
 		</PreSatori>
@@ -190,14 +366,14 @@ export const definition: RecipeDefinition<
 		slug: "weather",
 		title: "Weather Forecast",
 		description:
-			"A component that displays current weather data from Open-Meteo API. Supports configurable locations via latitude/longitude or location name.",
+			"Full-screen e-paper weather widget: current conditions, day/night hero, AQI, precip window, and a 4-day forecast from the Open-Meteo API. Configurable by location or coordinates.",
 		published: true,
 		tags: ["tailwind", "weather", "api", "live-data", "configurable"],
 		author: { name: "rbouteiller", github: "" },
 		category: "display-components",
-		version: "0.1.0",
+		version: "0.2.0",
 		createdAt: "2025-03-01T00:00:00Z",
-		updatedAt: "2025-03-01T00:00:00Z",
+		updatedAt: "2026-07-16T00:00:00Z",
 	},
 	paramsSchema,
 	dataSchema,
@@ -209,7 +385,13 @@ export const definition: RecipeDefinition<
 		});
 		return data as z.infer<typeof dataSchema>;
 	},
-	Component: ({ width, height, data }) => (
-		<Weather {...data} width={width} height={height} />
+	Component: ({ width, height, params, data }) => (
+		<Weather
+			{...data}
+			deviceName={params.deviceName}
+			battery={params.battery}
+			width={width}
+			height={height}
+		/>
 	),
 };
